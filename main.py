@@ -1,134 +1,122 @@
-from keep_alive import keep_alive
-keep_alive()
-
 import os
 import sqlite3
 import telebot
 from dotenv import load_dotenv
-from utils import create_tables, get_wallets, create_escrow, confirm_escrow, cancel_escrow, get_status, verify_wallet
+from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-# === ENV SETUP ===
 load_dotenv()
 bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-# === DATABASE SETUP ===
-conn = sqlite3.connect("escrow.db", check_same_thread=False)
+# Load wallet addresses
+ASSET_WALLETS = {
+    'LTC': os.getenv('LTC_WALLET'),
+    'BTC': os.getenv('BTC_WALLET'),
+    'USDT': os.getenv('USDT_WALLET'),
+}
+
+# === DATABASE ===
+conn = sqlite3.connect("group_escrow.db", check_same_thread=False)
 cursor = conn.cursor()
-create_tables(cursor)
-
-# === START MENU ===
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("💼 Start Escrow", "📖 Help & Commands")
-    markup.row("📜 Terms", "🔒 Escrow Status")
-
-    welcome_text = (
-        "🤖 *Welcome to P2P Escrow Bot!*\n\n"
-        "This bot helps you complete safe and secure crypto deals using escrow.\n"
-        "Start a deal, verify wallets, and get admin help if needed.\n\n"
-        "*🔐 100% Transparency*\n"
-        "*⚖️ Admin Conflict Resolution*\n"
-        "*💰 Fast, Secure Releases*\n\n"
-        "Use the buttons below or type /help to view all available commands."
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS group_escrows (
+        group_id INTEGER PRIMARY KEY,
+        buyer_id INTEGER,
+        seller_id INTEGER,
+        buyer_wallet TEXT,
+        seller_wallet TEXT,
+        asset TEXT,
+        status TEXT
     )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup, parse_mode='Markdown')
+''')
+conn.commit()
 
-# === PERSISTENT COMMAND MENU ===
-def set_bot_commands():
-    commands = [
-        telebot.types.BotCommand("start", "Show start menu"),
-        telebot.types.BotCommand("help", "List all commands"),
-        telebot.types.BotCommand("escrow", "Start a new escrow deal"),
-        telebot.types.BotCommand("confirm", "Confirm release of funds"),
-        telebot.types.BotCommand("cancel", "Cancel an ongoing deal"),
-        telebot.types.BotCommand("status", "Check your current deal"),
-        telebot.types.BotCommand("verifyescrow", "Check wallet trust"),
-        telebot.types.BotCommand("terms", "View terms and disclaimer"),
-        telebot.types.BotCommand("adminresolve", "(Admin only) Force release"),
-    ]
-    bot.set_my_commands(commands)
+# === START GROUP ESCROW ===
+@bot.message_handler(commands=['beginescrow'])
+def begin_escrow(message: Message):
+    group_id = message.chat.id
+    cursor.execute("REPLACE INTO group_escrows (group_id, status) VALUES (?, ?)", (group_id, 'initiated'))
+    conn.commit()
+    bot.reply_to(message, "🔐 Escrow session started!\nUse /seller and /buyer to register parties.")
 
-# === HELP COMMAND ===
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    help_text = """
-📖 *ESCROW BOT COMMANDS*
-/start - Show menu
-/help - Show help message
-/escrow - Start a new escrow session
-/confirm - Confirm the deal
-/cancel - Cancel an active escrow
-/status - View current escrow status
-/verifyescrow - Check if wallet is valid
-/terms - View terms and disclaimer
-/adminresolve - (Admin only)
-"""
-    bot.send_message(message.chat.id, help_text)
+# === REGISTER SELLER ===
+@bot.message_handler(commands=['seller'])
+def register_seller(message: Message):
+    parts = message.text.split()
+    if len(parts) != 3:
+        return bot.reply_to(message, "⚠️ Usage: /seller @username wallet_address")
+    seller_id = message.from_user.id
+    seller_wallet = parts[2]
+    group_id = message.chat.id
+    cursor.execute("UPDATE group_escrows SET seller_id = ?, seller_wallet = ? WHERE group_id = ?", (seller_id, seller_wallet, group_id))
+    conn.commit()
+    bot.reply_to(message, f"✅ Seller set: {parts[1]}\nWallet: `{seller_wallet}`", parse_mode='Markdown')
 
-# === TERMS COMMAND ===
-@bot.message_handler(commands=['terms'])
-def send_terms(message):
-    terms_text = (
-        "📜 *TERMS & CONDITIONS*:\n"
-        "- Escrow bot is for P2P deals.\n"
-        "- Funds must be confirmed before release.\n"
-        "- Admin can resolve disputes.\n"
-        "- We do not guarantee recovery of lost funds."
+# === REGISTER BUYER ===
+@bot.message_handler(commands=['buyer'])
+def register_buyer(message: Message):
+    parts = message.text.split()
+    if len(parts) != 3:
+        return bot.reply_to(message, "⚠️ Usage: /buyer @username wallet_address")
+    buyer_id = message.from_user.id
+    buyer_wallet = parts[2]
+    group_id = message.chat.id
+    cursor.execute("UPDATE group_escrows SET buyer_id = ?, buyer_wallet = ? WHERE group_id = ?", (buyer_id, buyer_wallet, group_id))
+    conn.commit()
+    bot.reply_to(message, f"✅ Buyer set: {parts[1]}\nWallet: `{buyer_wallet}`", parse_mode='Markdown')
+
+# === CHOOSE ASSET ===
+@bot.message_handler(commands=['asset', 'choose'])
+def choose_asset(message: Message):
+    markup = InlineKeyboardMarkup()
+    for asset in ASSET_WALLETS.keys():
+        markup.add(InlineKeyboardButton(asset, callback_data=f"set_asset:{asset}"))
+    bot.reply_to(message, "💠 Select an asset for escrow:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('set_asset:'))
+def callback_set_asset(call):
+    asset = call.data.split(':')[1]
+    group_id = call.message.chat.id
+    cursor.execute("UPDATE group_escrows SET asset = ? WHERE group_id = ?", (asset, group_id))
+    conn.commit()
+    bot.edit_message_text(
+        f"💰 Asset selected: {asset}\n📥 Send funds to the escrow wallet:\n`{ASSET_WALLETS[asset]}`",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        parse_mode='Markdown'
     )
-    bot.send_message(message.chat.id, terms_text, parse_mode='Markdown')
 
-# === ESCROW COMMANDS ===
-@bot.message_handler(commands=['escrow'])
-def escrow_handler(message):
-    create_escrow(message, cursor, conn, bot)
+# === BALANCE CHECK ===
+@bot.message_handler(commands=['balance'])
+def check_balance(message: Message):
+    group_id = message.chat.id
+    cursor.execute("SELECT asset FROM group_escrows WHERE group_id = ?", (group_id,))
+    row = cursor.fetchone()
+    if not row or not row[0]:
+        return bot.reply_to(message, "⚠️ No asset selected yet. Use /asset to choose.")
+    asset = row[0]
+    bot.reply_to(message, f"🧾 Escrow is set for asset: *{asset}*\n🔎 Manual balance check pending...", parse_mode='Markdown')
 
-@bot.message_handler(commands=['confirm'])
-def confirm_handler(message):
-    confirm_escrow(message, cursor, conn, bot)
+# === RELEASE FUNDS ===
+@bot.message_handler(commands=['releasefund'])
+def release_funds(message: Message):
+    group_id = message.chat.id
+    cursor.execute("SELECT seller_wallet, asset FROM group_escrows WHERE group_id = ?", (group_id,))
+    row = cursor.fetchone()
+    if not row:
+        return bot.reply_to(message, "❌ No active escrow found.")
+    seller_wallet, asset = row
+    bot.reply_to(message, f"✅ Funds released to seller:\nWallet: `{seller_wallet}`\nAsset: *{asset}*", parse_mode='Markdown')
 
-@bot.message_handler(commands=['cancel'])
-def cancel_handler(message):
-    cancel_escrow(message, cursor, conn, bot)
-
-@bot.message_handler(commands=['status'])
-def status_handler(message):
-    get_status(message, cursor, bot)
-
-@bot.message_handler(commands=['verifyescrow'])
-def verify_handler(message):
-    verify_wallet(message, bot)
-
-# === ADMIN RESOLVE ===
+# === ADMIN FORCE RESOLVE ===
 @bot.message_handler(commands=['adminresolve'])
-def admin_resolve(message):
+def admin_force_release(message: Message):
     if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "❌ You're not authorized.")
+        return bot.reply_to(message, "⛔ Only admin can use this command.")
+    group_id = message.chat.id
+    cursor.execute("DELETE FROM group_escrows WHERE group_id = ?", (group_id,))
+    conn.commit()
+    bot.reply_to(message, "🛑 Escrow forcibly resolved by admin.")
 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return bot.reply_to(message, "⚠️ Usage: /adminresolve <user_id>")
-
-    try:
-        target_id = int(parts[1])
-        cursor.execute("DELETE FROM escrows WHERE chat_id = ?", (target_id,))
-        conn.commit()
-        bot.send_message(message.chat.id, f"🔓 Escrow for user {target_id} resolved.")
-        bot.send_message(target_id, "⚠️ Your escrow session was force-resolved by the admin.")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {e}")
-
-# === FORWARD NON-COMMAND MESSAGES ===
-@bot.message_handler(func=lambda msg: not msg.text.startswith('/'))
-def forward_all(message):
-    try:
-        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
-    except Exception as e:
-        print(f"Failed to forward message: {e}")
-
-# === START BOT ===
-if __name__ == '__main__':
-    set_bot_commands()
-    keep_alive()
-    bot.infinity_polling()
+# === RUN BOT ===
+bot.infinity_polling()
