@@ -67,6 +67,11 @@ def send_help(message):
     )
     bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
+# === HELP BUTTON (from keyboard) ===
+@bot.message_handler(func=lambda m: m.text == "📖 Help & Commands")
+def handle_help_button(message):
+    send_help(message)
+
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
 def send_terms(message):
