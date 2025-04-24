@@ -22,7 +22,7 @@ def send_welcome(message):
     markup.row("💼 Start Escrow", "📖 Help & Commands")
     markup.row("📜 Terms", "🔒 Escrow Status")
     bot.send_message(message.chat.id,
-        f"🤖 Welcome to *Escrow Secure Bot*!\n\n" +
+        f"🤖 Welcome to *P2P Escrow Bot*!\n\n" +
         "Use the menu below to begin a secure transaction.\n\n" +
         "For support or custom deals, contact admin.",
         reply_markup=markup,
