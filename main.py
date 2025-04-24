@@ -52,7 +52,7 @@ def set_bot_commands():
 
 # === HELP COMMAND ===
 @bot.message_handler(commands=['help'])
-def help_command(message):
+def send_help(message):
     help_text = (
         "📖 *ESCROW BOT COMMANDS*:\n"
         "/start - Show menu\n"
@@ -65,7 +65,12 @@ def help_command(message):
         "/terms - View terms and disclaimer\n"
         "/adminresolve <user_id> - (Admin only)"
     )
-    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+
+    try:
+        bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+    except Exception as e:
+        print(f"Error sending help: {e}")
+        bot.send_message(message.chat.id, help_text)  # Fallback to plain text
 
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
