@@ -42,7 +42,7 @@ conn.commit()
 def show_menu(message: Message):
     menu = (
         "📜 *Escrow Menu*\n"
-        "/start – Start group escrow\n"
+        "/beginescrow – Start group escrow\n"
         "/seller @username wallet – Register seller\n"
         "/buyer @username wallet – Register buyer\n"
         "/asset COIN – Choose asset\n"
@@ -69,14 +69,14 @@ def terms(message: Message):
 @bot.message_handler(commands=['about'])
 def about(message: Message):
     bot.reply_to(message,
-        "🤖 *Group Escrow Bot v1.0*\nCreated by @blitz_gng.\nManual fund release with safe admin fallback.",
+        "🤖 *P2P Escrow Bot*\nCreated by @streaks100.\nManual fund release with safe admin fallback.",
         parse_mode='Markdown')
 
 @bot.message_handler(commands=['help'])
 def help_command(message: Message):
     text = (
         "🆘 *Help Guide:*\n"
-        "Start with /start\n"
+        "Start with /beginescrow\n"
         "Register seller and buyer\n"
         "Select /asset (e.g. LTC, BTC)\n"
         "Release using /releasefund\n"
