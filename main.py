@@ -53,24 +53,19 @@ def set_bot_commands():
 # === HELP COMMAND ===
 @bot.message_handler(commands=['help'])
 def send_help(message):
-    help_text = (
-        "📖 *ESCROW BOT COMMANDS*:\n"
-        "/start - Show menu\n"
-        "/help - Show help message\n"
-        "/escrow - Start a new escrow session\n"
-        "/confirm - Confirm the deal\n"
-        "/cancel - Cancel an active escrow\n"
-        "/status - View current escrow status\n"
-        "/verifyescrow - Check if wallet is valid\n"
-        "/terms - View terms and disclaimer\n"
-        "/adminresolve <user_id> - (Admin only)"
-    )
-
-    try:
-        bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Error sending help: {e}")
-        bot.send_message(message.chat.id, help_text)  # Fallback to plain text
+    help_text = """
+📖 *ESCROW BOT COMMANDS*
+/start - Show menu
+/help - Show help message
+/escrow - Start a new escrow session
+/confirm - Confirm the deal
+/cancel - Cancel an active escrow
+/status - View current escrow status
+/verifyescrow - Check if wallet is valid
+/terms - View terms and disclaimer
+/adminresolve - (Admin only)
+"""
+    bot.send_message(message.chat.id, help_text)
 
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
