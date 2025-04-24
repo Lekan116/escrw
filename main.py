@@ -1,8 +1,10 @@
+from keep_alive import keep_alive
+keep_alive()
+
 import os
 import sqlite3
 import telebot
 from dotenv import load_dotenv
-from keep_alive import keep_alive
 from utils import create_tables, get_wallets, create_escrow, confirm_escrow, cancel_escrow, get_status, verify_wallet
 
 # === ENV SETUP ===
@@ -19,16 +21,16 @@ create_tables(cursor)
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("\ud83d\udcbc Start Escrow", "\ud83d\udcd6 Help & Commands")
-    markup.row("\ud83d\udcdc Terms", "\ud83d\udd12 Escrow Status")
+    markup.row("💼 Start Escrow", "📖 Help & Commands")
+    markup.row("📜 Terms", "🔒 Escrow Status")
 
     welcome_text = (
-        "\ud83e\udd16 *Welcome to P2P Escrow Bot!*\n\n"
+        "🤖 *Welcome to P2P Escrow Bot!*\n\n"
         "This bot helps you complete safe and secure crypto deals using escrow.\n"
         "Start a deal, verify wallets, and get admin help if needed.\n\n"
-        "*\ud83d\udd10 100% Transparency*\n"
-        "*\u2696\ufe0f Admin Conflict Resolution*\n"
-        "*\ud83d\udcb0 Fast, Secure Releases*\n\n"
+        "*🔐 100% Transparency*\n"
+        "*⚖️ Admin Conflict Resolution*\n"
+        "*💰 Fast, Secure Releases*\n\n"
         "Use the buttons below or type /help to view all available commands."
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=markup, parse_mode='Markdown')
@@ -51,30 +53,30 @@ def set_bot_commands():
 # === HELP COMMAND ===
 @bot.message_handler(commands=['help'])
 def send_help(message):
-    help_text = """
-\ud83d\udcd6 *ESCROW BOT COMMANDS*:
-/start - Show menu
-/help - Show help message
-/escrow - Start a new escrow session
-/confirm - Confirm the deal
-/cancel - Cancel an active escrow
-/status - View current escrow status
-/verifyescrow - Check if wallet is valid
-/terms - View terms and disclaimer
-/adminresolve - (Admin only)
-"""
+    help_text = (
+        "📖 *ESCROW BOT COMMANDS*:\n"
+        "/start - Show menu\n"
+        "/help - Show help message\n"
+        "/escrow - Start a new escrow session\n"
+        "/confirm - Confirm the deal\n"
+        "/cancel - Cancel an active escrow\n"
+        "/status - View current escrow status\n"
+        "/verifyescrow - Check if wallet is valid\n"
+        "/terms - View terms and disclaimer\n"
+        "/adminresolve <user_id> - (Admin only)"
+    )
     bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
 def send_terms(message):
-    terms_text = """
-\ud83d\udcdc *TERMS & CONDITIONS*:
-- Escrow bot is for P2P deals.
-- Funds must be confirmed before release.
-- Admin can resolve disputes.
-- We do not guarantee recovery of lost funds.
-"""
+    terms_text = (
+        "📜 *TERMS & CONDITIONS*:\n"
+        "- Escrow bot is for P2P deals.\n"
+        "- Funds must be confirmed before release.\n"
+        "- Admin can resolve disputes.\n"
+        "- We do not guarantee recovery of lost funds."
+    )
     bot.send_message(message.chat.id, terms_text, parse_mode='Markdown')
 
 # === ESCROW COMMANDS ===
@@ -102,12 +104,22 @@ def verify_handler(message):
 @bot.message_handler(commands=['adminresolve'])
 def admin_resolve(message):
     if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "\u274c You're not authorized.")
-    cursor.execute("DELETE FROM escrows WHERE chat_id = ?", (message.chat.id,))
-    conn.commit()
-    bot.send_message(message.chat.id, "\ud83d\udd13 Admin manually resolved and closed the escrow.")
+        return bot.reply_to(message, "❌ You're not authorized.")
 
-# === FORWARD NON-COMMANDS TO ADMIN ===
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /adminresolve <user_id>")
+
+    try:
+        target_id = int(parts[1])
+        cursor.execute("DELETE FROM escrows WHERE chat_id = ?", (target_id,))
+        conn.commit()
+        bot.send_message(message.chat.id, f"🔓 Escrow for user {target_id} resolved.")
+        bot.send_message(target_id, "⚠️ Your escrow session was force-resolved by the admin.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+# === FORWARD NON-COMMAND MESSAGES ===
 @bot.message_handler(func=lambda msg: not msg.text.startswith('/'))
 def forward_all(message):
     try:
@@ -119,4 +131,4 @@ def forward_all(message):
 if __name__ == '__main__':
     set_bot_commands()
     keep_alive()
-    bot.polling()
+    bot.infinity_polling()
