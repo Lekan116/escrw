@@ -38,17 +38,40 @@ cursor.execute('''
 conn.commit()
 
 # === Commands ===
+
+@bot.message_handler(commands=['start'])
+def start_command(message: Message):
+    if message.chat.type == 'private':
+        text = (
+            "👋 *Hey there!*\n"
+            "I'm your *Group Escrow Bot* – built to keep trades safe inside Telegram groups.\n\n"
+            "🧑‍🤝‍🧑 Add me to a group and type /beginescrow to get started.\n"
+            "📜 Use /menu once inside the group to view all commands.\n\n"
+            "💡 Need help? Just type /help."
+        )
+    else:
+        text = (
+            "👋 *Welcome to the Group Escrow Bot!*\n"
+            "You're all set to begin secure trades in this group.\n\n"
+            "🔐 Start now with /beginescrow\n"
+            "📜 View all options with /menu\n"
+            "🆘 Need help? Use /help"
+        )
+    
+    bot.reply_to(message, text, parse_mode='Markdown')
+
 @bot.message_handler(commands=['menu'])
 def show_menu(message: Message):
     menu = (
         "📜 *Escrow Menu*\n"
         "/beginescrow – Start group escrow\n"
-        "/seller @username wallet – Register seller\n"
-        "/buyer @username wallet – Register buyer\n"
+        "/seller wallet – Register seller\n"
+        "/buyer wallet – Register buyer\n"
         "/asset COIN – Choose asset\n"
         "/balance – Check balance\n"
         "/releasefund – Release funds\n"
         "/adminresolve – Admin force resolve\n"
+        "/status – View current escrow info\n"
         "/terms – View terms\n"
         "/about – About bot\n"
         "/help – Get help"
@@ -166,6 +189,24 @@ def admin_force_release(message: Message):
     cursor.execute("DELETE FROM group_escrows WHERE group_id = ?", (group_id,))
     conn.commit()
     bot.reply_to(message, "🛑 Admin force-resolved the escrow session.")
+
+@bot.message_handler(commands=['status'])
+def view_status(message: Message):
+    group_id = message.chat.id
+    cursor.execute("SELECT buyer_wallet, seller_wallet, asset, status FROM group_escrows WHERE group_id = ?", (group_id,))
+    row = cursor.fetchone()
+    if not row:
+        return bot.reply_to(message, "ℹ️ No active escrow found. Use /beginescrow to start one.")
+    
+    buyer_wallet, seller_wallet, asset, status = row
+    status_message = (
+        "📊 *Escrow Status:*\n"
+        f"👤 Buyer Wallet: `{buyer_wallet or 'Not set'}`\n"
+        f"🧍‍♂️ Seller Wallet: `{seller_wallet or 'Not set'}`\n"
+        f"💰 Asset: *{asset or 'Not selected'}*\n"
+        f"📌 Status: *{status}*"
+    )
+    bot.reply_to(message, status_message, parse_mode='Markdown')
 
 # === Webhook Setup ===
 @app.route('/', methods=['GET'])
