@@ -52,7 +52,7 @@ def set_bot_commands():
 
 # === HELP COMMAND ===
 @bot.message_handler(commands=['help'])
-def send_help(message):
+def help_command(message):
     help_text = (
         "📖 *ESCROW BOT COMMANDS*:\n"
         "/start - Show menu\n"
@@ -65,12 +65,7 @@ def send_help(message):
         "/terms - View terms and disclaimer\n"
         "/adminresolve <user_id> - (Admin only)"
     )
-    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
-
-# === HELP BUTTON (from keyboard) ===
-@bot.message_handler(func=lambda m: m.text == "📖 Help & Commands")
-def handle_help_button(message):
-    send_help(message)
+    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
 
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
