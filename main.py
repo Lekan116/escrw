@@ -1,4 +1,3 @@
-
 import os
 import sqlite3
 import telebot
@@ -33,7 +32,7 @@ def send_welcome(message):
 # === HELP COMMAND ===
 @bot.message_handler(commands=['help'])
 def send_help(message):
-    bot.send_message(message.chat.id, """
+    help_text = """
 📖 *ESCROW BOT COMMANDS*:
 /start - Show menu
 /help - Show help message
@@ -44,20 +43,22 @@ def send_help(message):
 /verifyescrow - Check if wallet is valid
 /terms - View terms and disclaimer
 /adminresolve - (Admin only)
-""", parse_mode='Markdown')
+"""
+    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
 # === TERMS COMMAND ===
 @bot.message_handler(commands=['terms'])
 def send_terms(message):
-    bot.send_message(message.chat.id, """
+    terms_text = """
 📜 *TERMS & CONDITIONS*:
 - Escrow bot is for P2P deals.
 - Funds must be confirmed before release.
 - Admin can resolve disputes.
 - We do not guarantee recovery of lost funds.
-""", parse_mode='Markdown')
+"""
+    bot.send_message(message.chat.id, terms_text, parse_mode='Markdown')
 
-# === ESCROW COMMAND ===
+# === ESCROW COMMANDS ===
 @bot.message_handler(commands=['escrow'])
 def escrow_handler(message):
     create_escrow(message, cursor, conn, bot)
@@ -86,6 +87,14 @@ def admin_resolve(message):
     cursor.execute("DELETE FROM escrows WHERE chat_id = ?", (message.chat.id,))
     conn.commit()
     bot.send_message(message.chat.id, "🔓 Admin manually resolved and closed the escrow.")
+
+# === FORWARD NON-COMMANDS TO ADMIN ===
+@bot.message_handler(func=lambda msg: not msg.text.startswith('/'))
+def forward_all(message):
+    try:
+        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+    except Exception as e:
+        print(f"Failed to forward message: {e}")
 
 # === START BOT ===
 keep_alive()
