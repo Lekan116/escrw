@@ -42,7 +42,7 @@ conn.commit()
 def show_menu(message: Message):
     menu = (
         "📜 *Escrow Menu*\n"
-        "/beginescrow – Start group escrow\n"
+        "/start – Start group escrow\n"
         "/seller @username wallet – Register seller\n"
         "/buyer @username wallet – Register buyer\n"
         "/asset COIN – Choose asset\n"
@@ -76,7 +76,7 @@ def about(message: Message):
 def help_command(message: Message):
     text = (
         "🆘 *Help Guide:*\n"
-        "Start with /beginescrow\n"
+        "Start with /start\n"
         "Register seller and buyer\n"
         "Select /asset (e.g. LTC, BTC)\n"
         "Release using /releasefund\n"
