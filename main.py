@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import requests
 from flask import Flask, request
 import telebot
 from telebot.types import Message
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 
 ASSET_WALLETS = {
     'BTC': os.getenv("BTC_WALLET"),
@@ -161,15 +163,58 @@ def choose_asset(message: Message):
     conn.commit()
     bot.reply_to(message, f"💰 Asset selected: {asset}\n📥 Send funds to:\n`{ASSET_WALLETS[asset]}`", parse_mode='Markdown')
 
+def get_balance(asset, address):
+    if asset in ['BTC', 'LTC']:
+        url = f"https://sochain.com/api/v2/get_address_balance/{asset}/{address}"
+        response = requests.get(url).json()
+        if response.get('status') == 'success':
+            return response['data']['confirmed_balance']
+        return None
+    elif asset in ['ETH', 'USDT']:
+        contract = None
+        if asset == 'USDT':
+            contract = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+        if contract:
+            url = (
+                f"https://api.etherscan.io/api"
+                f"?module=account&action=tokenbalance"
+                f"&contractaddress={contract}"
+                f"&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
+            )
+        else:
+            url = (
+                f"https://api.etherscan.io/api"
+                f"?module=account&action=balance"
+                f"&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
+            )
+        response = requests.get(url).json()
+        if response.get('status') == '1':
+            raw_balance = int(response['result'])
+            return str(raw_balance / 1e18)
+        return None
+    return None
+
 @bot.message_handler(commands=['balance'])
 def check_balance(message: Message):
     group_id = message.chat.id
-    cursor.execute("SELECT asset FROM group_escrows WHERE group_id = ?", (group_id,))
+    cursor.execute("SELECT asset, buyer_wallet FROM group_escrows WHERE group_id = ?", (group_id,))
     row = cursor.fetchone()
     if not row or not row[0]:
-        return bot.reply_to(message, "⚠️ No asset selected yet. Use /asset first.")
-    asset = row[0]
-    bot.reply_to(message, f"🧾 Balance check for *{asset}*\n⏳ Coming soon...", parse_mode='Markdown')
+        return bot.reply_to(message, "⚠️ No asset or wallet set yet. Use /asset and /buyer first.")
+    asset, wallet = row
+    if not wallet:
+        return bot.reply_to(message, "⚠️ Buyer wallet not registered yet.")
+    
+    balance = get_balance(asset, wallet)
+    if balance is None:
+        return bot.reply_to(message, f"❌ Could not fetch balance for `{wallet}` on {asset} network.")
+    
+    bot.reply_to(message,
+        f"📦 *Live Balance for {asset}*\n"
+        f"`{wallet}`\n"
+        f"💰 *{balance} {asset}*",
+        parse_mode='Markdown'
+    )
 
 @bot.message_handler(commands=['releasefund'])
 def release_funds(message: Message):
