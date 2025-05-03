@@ -3,6 +3,7 @@ import requests
 import sqlite3
 from flask import Flask, request
 import telebot
+from telebot.types import BotCommand
 from telebot.types import Message
 from dotenv import load_dotenv
 
@@ -27,7 +28,21 @@ if not ETHERSCAN_API_KEY:
 # === Init bot and flask ===
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
-
+bot.set_my_commands([
+    BotCommand("start", "Start the bot"),
+    BotCommand("menu", "Show full command menu"),
+    BotCommand("beginescrow", "Start group escrow"),
+    BotCommand("seller", "Register seller wallet"),
+    BotCommand("buyer", "Register buyer wallet"),
+    BotCommand("asset", "Choose asset to trade"),
+    BotCommand("balance", "Check escrow balance"),
+    BotCommand("releasefund", "Release funds to seller"),
+    BotCommand("adminresolve", "Force close escrow (admin only)"),
+    BotCommand("status", "View escrow status"),
+    BotCommand("terms", "View escrow terms"),
+    BotCommand("about", "About the bot"),
+    BotCommand("help", "How to use the bot")
+])
 # === DB Setup ===
 conn = sqlite3.connect("group_escrow.db", check_same_thread=False)
 cursor = conn.cursor()
