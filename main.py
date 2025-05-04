@@ -66,6 +66,7 @@ conn.commit()
 def start_command(message: Message):
     # Send an animation or GIF from a URL
     bot.send_animation(chat_id=message.chat.id, animation="https://laoder5.wordpress.com/wp-content/uploads/2025/05/7916cb61-9e9d-431b-8121-e5ffcfee4349.mp4")
+    
     # Now send the welcome text
     text = (
         "👋 *Welcome to P2PEscrowBot!*\n\n"
