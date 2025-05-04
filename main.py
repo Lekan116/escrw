@@ -5,6 +5,7 @@ from flask import Flask, request
 import telebot
 from telebot.types import BotCommand
 from telebot.types import Message
+from telebot.types import InputFile
 from dotenv import load_dotenv
 
 # === Load environment variables ===
@@ -63,23 +64,41 @@ conn.commit()
 
 @bot.message_handler(commands=['start'])
 def start_command(message: Message):
-    if message.chat.type == 'private':
-        text = (
-            "👋 *Hey there!*\n"
-            "I'm your *Group Escrow Bot* – built to keep trades safe inside Telegram groups.\n\n"
-            "🧑‍🤝‍🧑 Add me to a group and type /beginescrow to get started.\n"
-            "📜 Use /menu once inside the group to view all commands.\n\n"
-            "💡 Need help? Just type /help."
-        )
-    else:
-        text = (
-            "👋 *Welcome to the Group Escrow Bot!*\n"
-            "You're all set to begin secure trades in this group.\n\n"
-            "🔐 Start now with /beginescrow\n"
-            "📜 View all options with /menu\n"
-            "🆘 Need help? Use /help"
-        )
-    bot.reply_to(message, text, parse_mode='Markdown')
+    # Send the logo or GIF (replace with your actual file path or URL)
+    photo = InputFile("https://laoder5.wordpress.com/wp-content/uploads/2025/05/7916cb61-9e9d-431b-8121-e5ffcfee4349.mp4")  # Can be .gif, .jpeg, .png
+    bot.send_photo(chat_id=message.chat.id, photo=photo)
+
+    # Now send the welcome text
+    text = (
+        "👋 *Welcome to P2PEscrowBot!*\n\n"
+        "This bot provides a secure escrow service for your transactions on Telegram. 🔒\n"
+        "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
+        "🛡️ *How It Works:*\n"
+        "1. Add this bot to your trading group.\n"
+        "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
+        "3. Have the *seller* and *buyer* register their wallets using:\n"
+        "   • `/seller BTC_ADDRESS`\n"
+        "   • `/buyer USDT_ADDRESS`\n"
+        "4. Use `/asset BTC` or `/asset USDT` to choose the asset for the deal.\n"
+        "5. Buyer sends funds to the wallet address shown by the bot.\n"
+        "6. Use `/balance` to confirm the funds arrived.\n"
+        "7. When both parties agree, use `/releasefund` to release the escrow.\n"
+        "8. Admin can intervene anytime with `/adminresolve` in case of dispute.\n\n"
+        "💰 *ESCROW FEE:* \n"
+        "• 5% for amounts over $100\n"
+        "• $5 flat fee for amounts under $100\n\n"
+        "🌟 *BOT STATS:*\n"
+        "✅ *Deals Completed:* 170\n"
+        "⚖️ *Disputes Resolved:* 20\n\n"
+        "💡 *Tips:*\n"
+        "• Always use `/status` to check live escrow info.\n"
+        "• Use `/terms` to review escrow rules.\n"
+        "• Use `/menu` in the group to view all features.\n\n"
+        "⚠️ If you run into issues, contact the admin and an *arbitrator* will join your group. ⏳\n\n"
+        "_Supported Assets: BTC, LTC, ETH, USDT (TRC20)_\n\n"
+        "Let’s make P2P trading safer for everyone!"
+    )
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['menu'])
 def show_menu(message: Message):
