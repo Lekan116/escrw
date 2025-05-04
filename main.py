@@ -66,44 +66,54 @@ conn.commit()
 
 @bot.message_handler(commands=['start'])
 def start_command(message: Message):
-    # Send an animation or GIF from a URL
-    bot.send_video(chat_id=message.chat.id, video="https://laoder5.wordpress.com/wp-content/uploads/2025/05/7916cb61-9e9d-431b-8121-e5ffcfee4349.mp4")
+    try:
+        # Send video (remote URL)
+        bot.send_chat_action(message.chat.id, 'upload_video')
+        bot.send_video(
+            chat_id=message.chat.id,
+            video="https://laoder5.wordpress.com/wp-content/uploads/2025/05/7916cb61-9e9d-431b-8121-e5ffcfee4349.mp4",
+            caption="🔒 Escrow system initializing..."
+        )
+    except Exception as e:
+        print(f"[Start Video Error] {e}")
+
+    # Send welcome message
+        text = (
+        "👋 *Welcome to [P2PEscrowBot](https://t.me/p2p_escrowbot)!*\n\n"
+        "This bot provides a secure escrow service for your transactions on Telegram. 🔐\n"
+        "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
+        "🛡️ *How It Works:*\n"
+        "1. Add @p2p_escrowbot to your trading group.\n"
+        "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
+        "3. Have the *seller* and *buyer* register their wallets using:\n"
+        "   • `/seller BTC_ADDRESS`\n"
+        "   • `/buyer USDT_ADDRESS`\n"
+        "4. Use `/asset BTC` or `/asset USDT` to select the asset for the deal.\n"
+        "5. Buyer sends funds to the wallet address shown by the bot.\n"
+        "6. Use `/balance` to confirm the funds arrived.\n"
+        "7. If someone entered the wrong wallet, correct it with `/editwallet NEW_ADDRESS`\n"
+        "8. Once both parties agree, use `/releasefund` to release the escrow.\n"
+        "9. If the deal falls through, either party can cancel using `/cancelescrow`\n"
+        "10. Admin can intervene anytime with `/adminresolve` in case of dispute.\n\n"
+        "💰 *ESCROW FEE:* \n"
+        "• 5% for amounts over $100\n"
+        "• $5 flat fee for amounts under $100\n\n"
+        "🌟 *BOT STATS:*\n"
+        "✅ *Deals Completed:* 170\n"
+        "⚖️ *Disputes Resolved:* 20\n\n"
+        "💡 *Tips:*\n"
+        "• Use `/status` to view live escrow info.\n"
+        "• Use `/terms` to review the rules.\n"
+        "• Use `/menu` in the group to explore all features.\n"
+        "• Mistyped your wallet? Just run `/editwallet` with the correct one.\n"
+        "• Need to back out? Use `/cancelescrow` anytime before release.\n\n"
+        "⚠️ Having issues? Contact the admin — an *arbitrator* will assist you. ⏳\n\n"
+        "_Supported Assets: BTC, LTC, ETH, USDT (ERC20)_\n\n"
+        "Let’s make P2P trading safer for everyone!"
+        )
     
-    # Now send the welcome text
-    text = (
-    "👋 Welcome to [P2PEscrowBot](https://t.me/p2p_escrowbot)!\n\n"
-    "This bot provides a secure escrow service for your transactions on Telegram. 🔒\n"
-    "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
-    "🛡️ *How It Works:*\n"
-    "1. Add @p2p_escrowbot to your trading group.\n"
-    "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
-    "3. Have the *seller* and *buyer* register their wallets using:\n"
-    "   • `/seller BTC_ADDRESS`\n"
-    "   • `/buyer USDT_ADDRESS`\n"
-    "4. Use `/asset BTC` or `/asset USDT` to select the asset for the deal.\n"
-    "5. Buyer sends funds to the wallet address shown by the bot.\n"
-    "6. Use `/balance` to confirm the funds arrived.\n"
-    "7. If someone entered the wrong wallet, correct it with `/editwallet NEW_ADDRESS`\n"
-    "8. Once both parties agree, use `/releasefund` to release the escrow.\n"
-    "9. If the deal falls through, either party can cancel using `/cancelescrow`\n"
-    "10. Admin can intervene anytime with `/adminresolve` in case of dispute.\n\n"
-    "💰 *ESCROW FEE:* \n"
-    "• 5% for amounts over $100\n"
-    "• $5 flat fee for amounts under $100\n\n"
-    "🌟 *BOT STATS:*\n"
-    "✅ *Deals Completed:* 170\n"
-    "⚖️ *Disputes Resolved:* 20\n\n"
-    "💡 *Tips:*\n"
-    "• Use `/status` to view live escrow info.\n"
-    "• Use `/terms` to review the rules.\n"
-    "• Use `/menu` in the group to explore all features.\n"
-    "• Mistyped your wallet? Just run `/editwallet` with the correct one.\n"
-    "• Need to back out? Use `/cancelescrow` anytime before release.\n\n"
-    "⚠️ Having issues? Contact the admin — an *arbitrator* will assist you. ⏳\n\n"
-    "_Supported Assets: BTC, LTC, ETH, USDT (ERC20)_\n\n"
-    "Let’s make P2P trading safer for everyone!"
-    )
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
 
 @bot.message_handler(commands=['menu'])
 def show_menu(message: Message):
