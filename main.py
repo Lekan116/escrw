@@ -75,7 +75,7 @@ def start_command(message: Message):
     "This bot provides a secure escrow service for your transactions on Telegram. 🔒\n"
     "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
     "🛡️ *How It Works:*\n"
-    "1. Add @p2p_escrowbot to your trading group.\n"
+    "1. Add this bot to your trading group.\n"
     "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
     "3. Have the *seller* and *buyer* register their wallets using:\n"
     "   • `/seller BTC_ADDRESS`\n"
