@@ -103,7 +103,7 @@ def start_command(message: Message):
     "_Supported Assets: BTC, LTC, ETH, USDT (ERC20)_\n\n"
     "Let’s make P2P trading safer for everyone!"
     )
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    bot.send_message(message.chat.id, text, parse_mode='MarkdownV2')
 
 @bot.message_handler(commands=['menu'])
 def show_menu(message: Message):
