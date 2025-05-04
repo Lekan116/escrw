@@ -71,11 +71,11 @@ def start_command(message: Message):
     
     # Now send the welcome text
     text = (
-    "👋 Welcome to [P2PEscrowBot](https://t.me/p2p_escrowbot)!\n\n"
+    "👋 *Welcome to P2PEscrowBot!*\n\n"
     "This bot provides a secure escrow service for your transactions on Telegram. 🔒\n"
     "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
     "🛡️ *How It Works:*\n"
-    "1. Add this bot to your trading group.\n"
+    "1. Add @p2p_escrowbot to your trading group.\n"
     "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
     "3. Have the *seller* and *buyer* register their wallets using:\n"
     "   • `/seller BTC_ADDRESS`\n"
@@ -103,7 +103,7 @@ def start_command(message: Message):
     "_Supported Assets: BTC, LTC, ETH, USDT (ERC20)_\n\n"
     "Let’s make P2P trading safer for everyone!"
     )
-    bot.send_message(message.chat.id, text, parse_mode='MarkdownV2')
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['menu'])
 def show_menu(message: Message):
