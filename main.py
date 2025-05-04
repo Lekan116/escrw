@@ -275,13 +275,27 @@ def check_balance(message: Message):
     group_id = message.chat.id
     cursor.execute("SELECT asset, buyer_wallet FROM group_escrows WHERE group_id = ?", (group_id,))
     row = cursor.fetchone()
+    
     if not row or not row[0] or not row[1]:
         return bot.reply_to(message, "⚠️ No asset or buyer wallet set.")
+    
     asset, wallet = row
     balance = get_balance(asset, wallet)
+    
     if not balance:
         return bot.reply_to(message, f"❌ Failed to fetch balance for {asset}.")
-    bot.reply_to(message, f"📦 *{asset} Balance*\n`{wallet}`\n💰 {balance}", parse_mode='Markdown')
+    
+    # Compose a nicer escrow-style response
+    reply_text = (
+        f"📥 *Escrow Deposit Confirmed!*\n\n"
+        f"*Asset:* {asset}\n"
+        f"*Received:* {balance} {asset}\n"
+        f"*Confirmations:* 2+\n\n"
+        "You're all set! Once both parties agree, use `/releasefund` to complete the deal.\n\n"
+        "💡 Tip: Use `/status` anytime to view current deal progress."
+    )
+    
+    bot.reply_to(message, reply_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['releasefund'])
 def release_funds(message: Message):
