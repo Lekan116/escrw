@@ -216,7 +216,8 @@ def choose_asset(message: Message):
     group_id = message.chat.id
     cursor.execute("UPDATE group_escrows SET asset = ? WHERE group_id = ?", (asset, group_id))
     conn.commit()
-    bot.reply_to(message, f"💰 Asset selected: {asset}\n📥 Send funds to:\n`{ASSET_WALLETS[asset]}`", parse_mode='Markdown')
+    bot.reply_to(message, f"💰 Asset selected: {asset}\n (5% for amounts over $100 
+    • $5 flat fee for amounts under $100) 📥 Send funds to:\n`{ASSET_WALLETS[asset]}`", parse_mode='Markdown')
 
 @bot.message_handler(commands=['editwallet'])
 def edit_wallet(message: Message):
