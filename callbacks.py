@@ -3,6 +3,7 @@ from pyrogram import Client, filters
 from database import cursor, conn
 from keyboards import main_menu
 from permissions import is_admin
+from group_manager import create_escrow_group
 
 @Client.on_callback_query()
 async def callback_router(client, query):
@@ -12,6 +13,7 @@ async def callback_router(client, query):
     if data == "create_escrow":
         escrow_id = str(uuid.uuid4())
 
+        # Insert escrow record
         cursor.execute(
             """
             INSERT INTO escrows (id, buyer_id, status)
@@ -20,20 +22,29 @@ async def callback_router(client, query):
             (escrow_id, user_id)
         )
 
+        # Insert escrow participant as buyer
         cursor.execute(
             """
-            INSERT INTO escrow_participants VALUES (?, ?, 'buyer')
+            INSERT INTO escrow_participants (escrow_id, user_id, role)
+            VALUES (?, ?, 'buyer')
             """,
             (escrow_id, user_id)
         )
 
         conn.commit()
 
-        invite_link = f"https://t.me/{client.me.username}?start=join_{escrow_id}"
+        # Create a private group for the escrow
+        group_id, invite_link = await create_escrow_group(
+            client,
+            escrow_id,
+            user_id
+        )
 
         await query.message.reply_text(
-            f"Escrow created.\n\n"
-            f"Send this link to the seller:\n{invite_link}"
+            "Escrow created.\n\n"
+            "A private group has been created.\n"
+            "Send this invite link to the seller:\n\n"
+            f"{invite_link}"
         )
 
     elif data == "help":
