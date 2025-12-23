@@ -1,4 +1,6 @@
 pyTelegramBotAPI
-python-dotenv
-Flask
+pyrogram
+tgcrypto
 requests
+python-dotenv
+flask
