@@ -1,16 +1,22 @@
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-def main_menu():
-    return InlineKeyboardMarkup([
+
+def start_keyboard():
+    """
+    Shown on /start
+    """
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("Create Escrow", callback_data="create_escrow"),
-            InlineKeyboardButton("My Escrows", callback_data="my_escrows")
-        ],
-        [
-            InlineKeyboardButton("Help", callback_data="help"),
-            InlineKeyboardButton("Terms", callback_data="terms")
+            [
+                InlineKeyboardButton("Create Escrow", callback_data="create_escrow"),
+                InlineKeyboardButton("My Escrows", callback_data="my_escrows")
+            ],
+            [
+                InlineKeyboardButton("Help", callback_data="help"),
+                InlineKeyboardButton("Terms", callback_data="terms")
+            ]
         ]
-    ])
+    )
 
 
 def escrow_actions(is_buyer=False, is_seller=False, funded=False):
