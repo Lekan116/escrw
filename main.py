@@ -1,378 +1,361 @@
 import os
-import requests
-import sqlite3
-from flask import Flask, request
-import telebot
-from telebot.types import BotCommand
-from telebot.types import Message
-from telebot.types import InputFile
+import asyncio
 from dotenv import load_dotenv
+from deposit_watcher import deposit_watcher
+from pyrogram import Client, filters
+from pyrogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ChatMemberUpdated
+)
 
-# === Load environment variables ===
+from database import conn, cursor
+from utils import calculate_fee
+from keyboards import (
+    start_keyboard,
+    escrow_panel,
+    asset_keyboard,
+    confirm_release_keyboard
+)
+
 load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+BOT_USERNAME = os.getenv("BOT_USERNAME")
 
-ASSET_WALLETS = {
-    'BTC': os.getenv("BTC_WALLET"),
-    'LTC': os.getenv("LTC_WALLET"),
-    'USDT': os.getenv("USDT_WALLET"),
-    'ETH': os.getenv("ETH_WALLET")
-}
+app = Client(
+    "escrowbot",
+    bot_token=BOT_TOKEN,
+    api_id=API_ID,
+    api_hash=API_HASH
+)
 
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN is not set in environment variables.")
-if not ETHERSCAN_API_KEY:
-    raise ValueError("ETHERSCAN_API_KEY is not set in environment variables.")
+# ---------------------------
+# START / DEEP LINK HANDLER
+# ---------------------------
 
-# === Init bot and flask ===
-bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(__name__)
-bot.set_my_commands([
-    BotCommand("start", "Start the bot"),
-    BotCommand("menu", "Show full command menu"),
-    BotCommand("beginescrow", "Start group escrow"),
-    BotCommand("seller", "Register seller wallet"),
-    BotCommand("buyer", "Register buyer wallet"),
-    BotCommand("asset", "Choose asset to trade"),
-    BotCommand("editwallet", "Correct your wallet address"),
-    BotCommand("cancelescrow", "Cancel escrow session"),
-    BotCommand("balance", "Check escrow balance"),
-    BotCommand("releasefund", "Release funds to seller"),
-    BotCommand("adminresolve", "Force close escrow (admin only)"),
-    BotCommand("status", "View escrow status"),
-    BotCommand("terms", "View escrow terms"),
-    BotCommand("about", "About the bot"),
-    BotCommand("help", "How to use the bot")
-])
-# === DB Setup ===
-conn = sqlite3.connect("group_escrow.db", check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS group_escrows (
-        group_id INTEGER PRIMARY KEY,
-        buyer_id INTEGER,
-        seller_id INTEGER,
-        buyer_wallet TEXT,
-        seller_wallet TEXT,
-        asset TEXT,
-        status TEXT
+@app.on_message(filters.private & filters.command("start"))
+async def start_handler(client, message):
+    if len(message.command) > 1 and message.command[1].startswith("escrow_"):
+        escrow_id = message.command[1].split("_")[1]
+
+        cursor.execute(
+            "SELECT buyer_id, seller_id, status FROM escrows WHERE id = ?",
+            (escrow_id,)
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return await message.reply("Invalid or expired escrow link.")
+
+        buyer_id, seller_id, status = row
+
+        if message.from_user.id == buyer_id:
+            return await message.reply("You are already registered as the buyer.")
+
+        if seller_id:
+            return await message.reply("Seller already registered for this escrow.")
+
+        cursor.execute(
+            "UPDATE escrows SET seller_id = ?, status = ? WHERE id = ?",
+            (message.from_user.id, "participants_set", escrow_id)
+        )
+        conn.commit()
+
+        await message.reply(
+            "You are now registered as the seller.\n\n"
+            "Create a group, add this bot, and the escrow will activate automatically."
+        )
+        return
+
+    await message.reply(
+        "Welcome to P2P Escrow Bot\n\n"
+        "This bot helps two parties complete trades safely using a neutral escrow process.\n\n"
+        "How it works:\n"
+        "1. Buyer creates escrow\n"
+        "2. Bot generates a secure invite link\n"
+        "3. Buyer sends the link to the seller\n"
+        "4. Seller joins using the link\n"
+        "5. Escrow room is activated\n"
+        "6. Buyer sends funds\n"
+        "7. Seller delivers\n"
+        "8. Both parties confirm release\n\n"
+        "The bot does not hold funds.\n"
+        "All actions are performed using buttons.\n",
+        reply_markup=start_keyboard()
     )
-''')
-conn.commit()
 
-# === Bot Commands ===
+# ---------------------------
+# CREATE ESCROW
+# ---------------------------
 
-@bot.message_handler(commands=['start'])
-def start_command(message: Message):
-    # Send an animation or GIF from a URL
-    bot.send_video(chat_id=message.chat.id, video="https://laoder5.wordpress.com/wp-content/uploads/2025/05/7916cb61-9e9d-431b-8121-e5ffcfee4349.mp4")
-    
-    # Now send the welcome text
-    text = (
-    "👋 *Welcome to P2PEscrowBot!*\n\n"
-    "This bot provides a secure escrow service for your transactions on Telegram. 🔒\n"
-    "No more worries about getting scammed — your funds stay safe during all your deals.\n\n"
-    "🛡️ *How It Works:*\n"
-    "1. Add this bot to your trading group.\n"
-    "2. Use `/beginescrow` in the group to initiate an escrow session.\n"
-    "3. Have the *seller* and *buyer* register their wallets using:\n"
-    "   • `/seller BTC_ADDRESS`\n"
-    "   • `/buyer USDT_ADDRESS`\n"
-    "4. Use `/asset BTC` or `/asset USDT` to choose the asset for the deal.\n"
-    "5. Buyer sends funds to the wallet address shown by the bot.\n"
-    "6. Use `/balance` to confirm the funds arrived.\n"
-    "7. If someone entered the wrong wallet, correct it with `/editwallet NEW_ADDRESS`\n"
-    "8. When both parties agree, use `/releasefund` to release the escrow.\n"
-    "9. If the deal falls through, either party can cancel with `/cancelescrow`\n"
-    "10. Admin can intervene anytime with `/adminresolve` in case of dispute.\n\n"
-    "💰 *ESCROW FEE:* \n"
-    "• 5% for amounts over $100\n"
-    "• $5 flat fee for amounts under $100\n\n"
-    "🌟 *BOT STATS:*\n"
-    "✅ *Deals Completed:* 2,042\n"
-    "⚖️ *Disputes Resolved:* 90\n\n"
-    "💡 *Tips:*\n"
-    "• Always use `/status` to check live escrow info.\n"
-    "• Use `/terms` to review escrow rules.\n"
-    "• Use `/menu` in the group to view all features.\n"
-    "• Mistyped wallet? Just run `/editwallet` with the correct one.\n"
-    "• Need to back out? Use `/cancelescrow` anytime before release.\n\n"
-    "⚠️ If you run into issues, contact the admin and an *arbitrator* will join your group. ⏳\n\n"
-    "_Supported Assets: BTC, LTC, ETH, USDT (ERC20)_\n\n"
-    "Let’s make P2P trading safer for everyone!"
+@app.on_callback_query(filters.regex("^create_escrow$"))
+async def create_escrow_cb(client, cb):
+    import uuid
+
+    escrow_id = str(uuid.uuid4())[:8]
+
+    cursor.execute(
+        """
+        INSERT INTO escrows (id, buyer_id, status)
+        VALUES (?, ?, ?)
+        """,
+        (escrow_id, cb.from_user.id, "waiting_seller")
     )
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    conn.commit()
 
-@bot.message_handler(commands=['menu'])
-def show_menu(message: Message):
-    menu = (
-        "📜 *Escrow Menu*\n"
-        "/beginescrow – Start group escrow\n"
-        "/seller wallet – Register seller\n"
-        "/buyer wallet – Register buyer\n"
-        "/asset COIN – Choose asset\n"
-        "/editwallet – Correct your wallet address.\n"
-        "/cancelescrow – cancel escrow session\n"
-        "/balance – Check balance\n"
-        "/releasefund – Release funds\n"
-        "/adminresolve – Admin force resolve\n"
-        "/status – View current escrow info\n"
-        "/terms – View terms\n"
-        "/about – About bot\n"
-        "/help – Get help"
+    link = f"https://t.me/{BOT_USERNAME}?start=escrow_{escrow_id}"
+
+    await cb.message.reply(
+        f"Escrow created.\n\n"
+        f"Escrow ID: `{escrow_id}`\n\n"
+        f"Send this link to the seller:\n{link}",
+        parse_mode="markdown"
     )
-    bot.reply_to(message, menu, parse_mode='Markdown')
 
-@bot.message_handler(commands=['terms'])
-def terms(message: Message):
-    terms = (
-        "📜 *Escrow Terms:*\n"
-        "- Both buyer & seller must register\n"
-        "- Select asset before funding\n"
-        "- Admin can resolve disputes\n"
-        "- Escrow bot not liable for losses"
+# ---------------------------
+# GROUP BINDING (BOT ADDED)
+# ---------------------------
+
+@app.on_message(filters.group & filters.new_chat_members)
+async def on_bot_added(client, message):
+    if client.me.id not in [u.id for u in message.new_chat_members]:
+        return
+
+    cursor.execute(
+        """
+        SELECT id FROM escrows
+        WHERE status = 'participants_set'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
     )
-    bot.reply_to(message, terms, parse_mode='Markdown')
-
-@bot.message_handler(commands=['about'])
-def about(message: Message):
-    bot.reply_to(message,
-        "🤖 *P2P Escrow Bot*\nCreated by @streaks100.\nManual fund release with safe admin fallback.",
-        parse_mode='Markdown')
-
-@bot.message_handler(commands=['help'])
-def help_command(message: Message):
-    text = (
-        "🆘 *Help Guide:*\n"
-        "Start with /beginescrow\n"
-        "Register seller and buyer\n"
-        "Select /asset (e.g. LTC, BTC)\n"
-        "Release using /releasefund\n"
-        "Use /menu for full commands"
-    )
-    bot.reply_to(message, text, parse_mode='Markdown')
-
-def is_group(message):
-    return message.chat.type in ['group', 'supergroup']
-
-@bot.message_handler(commands=['beginescrow'])
-def begin_escrow(message: Message):
-    if not is_group(message):
-        return bot.reply_to(message, "⚠️ Use this command in a group.")
-    
-    group_id = message.chat.id
-
-    # 🔒 Check if an escrow is already active
-    cursor.execute("SELECT status FROM group_escrows WHERE group_id = ?", (group_id,))
     row = cursor.fetchone()
-    if row and row[0] != 'completed':
-        return bot.reply_to(message, "⚠️ Escrow already active in this group.")
-    
-    # ✅ Escrow is safe to start
-    cursor.execute("REPLACE INTO group_escrows (group_id, status) VALUES (?, ?)", (group_id, 'initiated'))
-    conn.commit()
 
-    # 🧾 Log for debugging
-    print(f"[BEGIN ESCROW] Group: {group_id}, User: {message.from_user.id}")
-
-    bot.reply_to(message, "🔐 Escrow started! Use /seller and /buyer to register. 5% for amounts over $100, $5 flat fee for amounts under $100")
-    
-@bot.message_handler(commands=['seller'])
-def register_seller(message: Message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        return bot.reply_to(message, "⚠️ Usage: /seller wallet_address")
-    seller_id = message.from_user.id
-    wallet = parts[1]
-    group_id = message.chat.id
-    cursor.execute("UPDATE group_escrows SET seller_id = ?, seller_wallet = ? WHERE group_id = ?", 
-                   (seller_id, wallet, group_id))
-    conn.commit()
-    bot.reply_to(message, f"✅ Seller set: *{message.from_user.first_name}*\nWallet: `{wallet}`", parse_mode='Markdown')
-
-@bot.message_handler(commands=['buyer'])
-def register_buyer(message: Message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        return bot.reply_to(message, "⚠️ Usage: /buyer wallet_address")
-    buyer_id = message.from_user.id
-    wallet = parts[1]
-    group_id = message.chat.id
-    cursor.execute("UPDATE group_escrows SET buyer_id = ?, buyer_wallet = ? WHERE group_id = ?", 
-                   (buyer_id, wallet, group_id))
-    conn.commit()
-    bot.reply_to(message, f"✅ Buyer set: *{message.from_user.first_name}*\nWallet: `{wallet}`", parse_mode='Markdown')
-
-@bot.message_handler(commands=['asset', 'choose'])
-def choose_asset(message: Message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        return bot.reply_to(message, f"⚠️ Usage: /asset COIN\nAvailable: {', '.join(ASSET_WALLETS)}")
-    asset = parts[1].upper()
-    if asset not in ASSET_WALLETS:
-        return bot.reply_to(message, f"❌ Invalid asset. Available: {', '.join(ASSET_WALLETS)}")
-    group_id = message.chat.id
-    cursor.execute("UPDATE group_escrows SET asset = ? WHERE group_id = ?", (asset, group_id))
-    conn.commit()
-    bot.reply_to(message, f"💰 Asset selected: {asset}\n📥 Send funds to:\n`{ASSET_WALLETS[asset]}`", parse_mode='Markdown')
-
-@bot.message_handler(commands=['editwallet'])
-def edit_wallet(message: Message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        return bot.reply_to(message, "⚠️ Usage: /editwallet NEW_WALLET_ADDRESS")
-    new_wallet = parts[1]
-    user_id = message.from_user.id
-    group_id = message.chat.id
-
-    cursor.execute("SELECT buyer_id, seller_id FROM group_escrows WHERE group_id = ?", (group_id,))
-    row = cursor.fetchone()
     if not row:
-        return bot.reply_to(message, "❌ No active escrow found.")
-    
-    buyer_id, seller_id = row
-    if user_id == buyer_id:
-        cursor.execute("UPDATE group_escrows SET buyer_wallet = ? WHERE group_id = ?", (new_wallet, group_id))
-        conn.commit()
-        return bot.reply_to(message, f"🔁 Buyer wallet updated to:\n`{new_wallet}`", parse_mode='Markdown')
-    elif user_id == seller_id:
-        cursor.execute("UPDATE group_escrows SET seller_wallet = ? WHERE group_id = ?", (new_wallet, group_id))
-        conn.commit()
-        return bot.reply_to(message, f"🔁 Seller wallet updated to:\n`{new_wallet}`", parse_mode='Markdown')
-    else:
-        return bot.reply_to(message, "⛔ You are not part of this escrow session.")
+        return await message.reply("No pending escrow found.")
 
-def get_balance(asset, address):
+    escrow_id = row[0]
+
+    cursor.execute(
+        """
+        UPDATE escrows
+        SET group_id = ?, status = 'active'
+        WHERE id = ?
+        """,
+        (message.chat.id, escrow_id)
+    )
+    conn.commit()
+
+    await message.reply(
+        "Escrow room activated.\n\n"
+        "Use the control panel below to proceed.",
+        reply_markup=escrow_panel()
+    )
+
+# ---------------------------
+# ASSET SELECTION
+# ---------------------------
+
+@app.on_callback_query(filters.regex("^set_asset$"))
+async def set_asset_cb(client, cb):
+    await cb.message.reply(
+        "Select the asset for this escrow:",
+        reply_markup=asset_keyboard()
+    )
+
+@app.on_callback_query(filters.regex("^asset_"))
+async def asset_selected_cb(client, cb):
+    asset = cb.data.split("_")[1]
+
+    cursor.execute(
+        "UPDATE escrows SET asset = ? WHERE group_id = ?",
+        (asset, cb.message.chat.id)
+    )
+    conn.commit()
+
+    await cb.answer(f"{asset} selected")
+
+# ---------------------------
+# SET AMOUNT
+# ---------------------------
+
+@app.on_callback_query(filters.regex("^set_amount$"))
+async def ask_amount_cb(client, cb):
+    cursor.execute(
+        "UPDATE sessions SET state = 'awaiting_amount' WHERE user_id = ?",
+        (cb.from_user.id,)
+    )
+    conn.commit()
+
+    await cb.message.reply("Enter the escrow amount:")
+
+@app.on_message(filters.group & filters.text)
+async def amount_input(client, message):
+    cursor.execute(
+        "SELECT state FROM sessions WHERE user_id = ?",
+        (message.from_user.id,)
+    )
+    row = cursor.fetchone()
+
+    if not row or row[0] != "awaiting_amount":
+        return
+
     try:
-        if asset in ['BTC', 'LTC']:
-            url = f"https://sochain.com/api/v2/get_address_balance/{asset}/{address}"
-            res = requests.get(url)
-            if res.status_code == 200:
-                data = res.json()
-                if data['status'] == 'success':
-                    return data['data']['confirmed_balance']
-        elif asset in ['ETH', 'USDT']:
-            if asset == 'USDT':
-                contract = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
-                url = f"https://api.etherscan.io/api?module=account&action=tokenbalance&contractaddress={contract}&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
-                decimals = 1e6
-            else:
-                url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
-                decimals = 1e18
-            res = requests.get(url)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get('status') == '1':
-                    return str(int(data['result']) / decimals)
-    except Exception as e:
-        print(f"[Balance Error] {asset} - {address} -> {e}")
-    return None
+        amount = float(message.text)
+    except ValueError:
+        return await message.reply("Invalid amount.")
 
-@bot.message_handler(commands=['balance'])
-def check_balance(message: Message):
-    group_id = message.chat.id
-    cursor.execute("SELECT asset, buyer_wallet FROM group_escrows WHERE group_id = ?", (group_id,))
-    row = cursor.fetchone()
-    
-    if not row or not row[0] or not row[1]:
-        return bot.reply_to(message, "⚠️ No asset or buyer wallet set.")
-    
-    asset, wallet = row
-    balance = get_balance(asset, wallet)
-    
-    if not balance:
-        return bot.reply_to(message, f"❌ Failed to fetch balance for {asset}.")
-    
-    # Compose a nicer escrow-style response
-    reply_text = (
-        f"📥 *Escrow Deposit Confirmed!*\n\n"
-        f"*Asset:* {asset}\n"
-        f"*Received:* {balance} {asset}\n"
-        f"*Confirmations:* 2+\n\n"
-        "You're all set! Once both parties agree, use `/releasefund` to complete the deal.\n\n"
-        "💡 Tip: Use `/status` anytime to view current deal progress."
+    fee, net = calculate_fee(amount)
+
+    cursor.execute(
+        """
+        UPDATE escrows
+        SET amount = ?, fee = ?, net_amount = ?, status = 'awaiting_deposit'
+        WHERE group_id = ?
+        """,
+        (amount, fee, net, message.chat.id)
     )
-    
-    bot.reply_to(message, reply_text, parse_mode='Markdown')
 
-@bot.message_handler(commands=['releasefund'])
-def release_funds(message: Message):
-    group_id = message.chat.id
-    cursor.execute("SELECT seller_wallet, asset FROM group_escrows WHERE group_id = ?", (group_id,))
-    row = cursor.fetchone()
-    if not row:
-        return bot.reply_to(message, "❌ No active escrow found.")
-    seller_wallet, asset = row
-    bot.reply_to(message, f"✅ Funds released to seller:\nWallet: `{seller_wallet}`\nAsset: *{asset}*", parse_mode='Markdown')
-
-@bot.message_handler(commands=['adminresolve'])
-def admin_force_release(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "⛔ Only admin can do this.")
-    group_id = message.chat.id
-    cursor.execute("DELETE FROM group_escrows WHERE group_id = ?", (group_id,))
-    conn.commit()
-    bot.reply_to(message, "🛑 Admin force-resolved the escrow session.")
-
-@bot.message_handler(commands=['status'])
-def view_status(message: Message):
-    group_id = message.chat.id
-    cursor.execute("SELECT buyer_wallet, seller_wallet, asset, status FROM group_escrows WHERE group_id = ?", (group_id,))
-    row = cursor.fetchone()
-    if not row:
-        return bot.reply_to(message, "ℹ️ No active escrow found. Use /beginescrow to start one.")
-    
-    buyer_wallet, seller_wallet, asset, status = row
-    buyer_balance = get_balance(asset, buyer_wallet) if buyer_wallet and asset else "?"
-    seller_balance = get_balance(asset, seller_wallet) if seller_wallet and asset else "?"
-
-    status_message = (
-        "📊 *Escrow Status:*\n"
-        f"👤 Buyer Wallet: `{buyer_wallet or 'Not set'}`\n"
-        f"   Balance: `{buyer_balance}`\n"
-        f"🧍‍♂️ Seller Wallet: `{seller_wallet or 'Not set'}`\n"
-        f"   Balance: `{seller_balance}`\n"
-        f"💰 Asset: *{asset or 'Not selected'}*\n"
-        f"📌 Status: *{status}*"
+    cursor.execute(
+        "DELETE FROM sessions WHERE user_id = ?",
+        (message.from_user.id,)
     )
-    bot.reply_to(message, status_message, parse_mode='Markdown')
 
-@bot.message_handler(commands=['cancelescrow'])
-def cancel_escrow(message: Message):
-    group_id = message.chat.id
-    cursor.execute("SELECT status FROM group_escrows WHERE group_id = ?", (group_id,))
-    row = cursor.fetchone()
-    if not row:
-        return bot.reply_to(message, "❌ No active escrow to cancel.")
-    
-    if row[0] == 'completed':
-        return bot.reply_to(message, "⚠️ Escrow already completed. Cannot cancel.")
-
-    cursor.execute("DELETE FROM group_escrows WHERE group_id = ?", (group_id,))
     conn.commit()
-    bot.reply_to(message, "❎ Escrow session cancelled.")
 
-# === Webhook Setup ===
-@app.route('/', methods=['GET'])
-def index():
-    return 'Escrow bot running!', 200
+    await message.reply(
+        f"Amount locked.\n\n"
+        f"Amount: {amount}\n"
+        f"Fee: {fee}\n"
+        f"Seller receives: {net}",
+        reply_markup=escrow_panel()
+    )
 
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
-def webhook():
-    update = telebot.types.Update.de_json(request.get_json())
-    bot.process_new_updates([update])
-    return '', 200
+# ---------------------------
+# STATUS
+# ---------------------------
 
-# === Start Webhook ===
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if WEBHOOK_URL:
-    bot.remove_webhook()
-    bot.set_webhook(WEBHOOK_URL)
-else:
-    print("Error: WEBHOOK_URL is not set in environment variables.")
+@app.on_callback_query(filters.regex("^status$"))
+async def status_cb(client, cb):
+    cursor.execute(
+        """
+        SELECT asset, amount, fee, net_amount, status
+        FROM escrows WHERE group_id = ?
+        """,
+        (cb.message.chat.id,)
+    )
+    row = cursor.fetchone()
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host="0.0.0.0", port=port)
+    if not row:
+        return await cb.message.reply("No active escrow.")
+
+    asset, amount, fee, net, status = row
+
+    await cb.message.reply(
+        f"Escrow Status\n\n"
+        f"Asset: {asset}\n"
+        f"Amount: {amount}\n"
+        f"Fee: {fee}\n"
+        f"Seller Receives: {net}\n"
+        f"State: {status}"
+    )
+
+# ---------------------------
+# RELEASE FLOW
+# ---------------------------
+
+@app.on_callback_query(filters.regex("^release$"))
+async def release_cb(client, cb):
+    await cb.message.reply(
+        "Both parties must confirm release.",
+        reply_markup=confirm_release_keyboard()
+    )
+
+@app.on_callback_query(filters.regex("^confirm_release$"))
+async def confirm_release_cb(client, cb):
+    cursor.execute(
+        """
+        SELECT buyer_id, seller_id, buyer_confirmed, seller_confirmed
+        FROM escrows WHERE group_id = ?
+        """,
+        (cb.message.chat.id,)
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        return
+
+    buyer_id, seller_id, b_conf, s_conf = row
+
+    if cb.from_user.id == buyer_id:
+        b_conf = 1
+    elif cb.from_user.id == seller_id:
+        s_conf = 1
+    else:
+        return await cb.answer("Not authorized")
+
+    cursor.execute(
+        """
+        UPDATE escrows
+        SET buyer_confirmed = ?, seller_confirmed = ?
+        WHERE group_id = ?
+        """,
+        (b_conf, s_conf, cb.message.chat.id)
+    )
+    conn.commit()
+
+    if b_conf and s_conf:
+        cursor.execute(
+            "UPDATE escrows SET status = 'released' WHERE group_id = ?",
+            (cb.message.chat.id,)
+        )
+        conn.commit()
+
+        await cb.message.reply("Funds released. Escrow completed.")
+    else:
+        await cb.answer("Confirmation recorded")
+
+# ---------------------------
+# DISPUTE
+# ---------------------------
+
+@app.on_callback_query(filters.regex("^dispute$"))
+async def dispute_cb(client, cb):
+    link = await client.export_chat_invite_link(cb.message.chat.id)
+
+    await client.send_message(
+        ADMIN_ID,
+        f"DISPUTE OPENED\n\nJoin escrow group:\n{link}"
+    )
+
+    cursor.execute(
+        "UPDATE escrows SET status = 'disputed' WHERE group_id = ?",
+        (cb.message.chat.id,)
+    )
+    conn.commit()
+
+    await cb.message.reply("Dispute opened. Admin notified.")
+
+# ---------------------------
+# CANCEL
+# ---------------------------
+
+@app.on_callback_query(filters.regex("^cancel$"))
+async def cancel_cb(client, cb):
+    cursor.execute(
+        "UPDATE escrows SET status = 'cancelled' WHERE group_id = ?",
+        (cb.message.chat.id,)
+    )
+    conn.commit()
+
+    await cb.message.reply("Escrow cancelled.")
+
+# ---------------------------
+# RUN
+# ---------------------------
+
+app.run()
