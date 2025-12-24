@@ -1,89 +1,108 @@
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-# ===== MAIN MENU =====
-def main_menu():
-    return InlineKeyboardMarkup([
+# ==============================
+# START / HOME
+# ==============================
+def start_keyboard():
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("🆕 Create Escrow", callback_data="create_escrow"),
-            InlineKeyboardButton("📂 My Escrows", callback_data="my_escrows")
-        ],
-        [
-            InlineKeyboardButton("📖 Help", callback_data="help"),
-            InlineKeyboardButton("📜 Terms", callback_data="terms")
+            [
+                InlineKeyboardButton("🆕 Create Escrow", callback_data="escrow:create"),
+                InlineKeyboardButton("📂 My Escrows", callback_data="escrow:list")
+            ],
+            [
+                InlineKeyboardButton("📜 Terms", callback_data="info:terms"),
+                InlineKeyboardButton("❓ Help", callback_data="info:help")
+            ]
         ]
-    ])
+    )
 
 
-# ===== ESCROW SETUP =====
-def escrow_setup_menu():
-    return InlineKeyboardMarkup([
+# ==============================
+# ESCROW SETUP
+# ==============================
+def escrow_setup_keyboard():
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("👤 Join as Buyer", callback_data="join_buyer"),
-            InlineKeyboardButton("🧍 Join as Seller", callback_data="join_seller")
-        ],
-        [
-            InlineKeyboardButton("💰 Select Asset", callback_data="select_asset"),
-        ],
-        [
-            InlineKeyboardButton("❌ Cancel Escrow", callback_data="cancel_escrow")
+            [
+                InlineKeyboardButton("👤 Set Buyer", callback_data="escrow:set_buyer"),
+                InlineKeyboardButton("🧍 Set Seller", callback_data="escrow:set_seller")
+            ],
+            [
+                InlineKeyboardButton("💰 Select Asset", callback_data="escrow:set_asset"),
+            ],
+            [
+                InlineKeyboardButton("❌ Cancel Escrow", callback_data="escrow:cancel")
+            ]
         ]
-    ])
+    )
 
 
-# ===== ASSET SELECTION =====
+# ==============================
+# ASSET SELECTION
+# ==============================
 def asset_keyboard():
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("₿ BTC", callback_data="asset_BTC"),
-            InlineKeyboardButton("Ξ ETH", callback_data="asset_ETH")
-        ],
-        [
-            InlineKeyboardButton("💲 USDT", callback_data="asset_USDT"),
-            InlineKeyboardButton("Ł LTC", callback_data="asset_LTC")
-        ],
-        [
-            InlineKeyboardButton("⬅️ Back", callback_data="back_to_escrow")
+            [
+                InlineKeyboardButton("₿ BTC", callback_data="asset:BTC"),
+                InlineKeyboardButton("Ł LTC", callback_data="asset:LTC")
+            ],
+            [
+                InlineKeyboardButton("Ξ ETH", callback_data="asset:ETH"),
+                InlineKeyboardButton("💵 USDT", callback_data="asset:USDT")
+            ]
         ]
-    ])
+    )
 
 
-# ===== FUNDED / ACTIVE ESCROW =====
-def escrow_actions(is_buyer=False, is_seller=False, funded=False):
+# ==============================
+# ACTIVE ESCROW CONTROLS
+# ==============================
+def escrow_action_keyboard(
+    is_buyer=False,
+    is_seller=False,
+    funded=False,
+    is_admin=False
+):
     buttons = []
 
+    # Buyer actions
     if is_buyer and not funded:
         buttons.append(
-            InlineKeyboardButton("🔍 Check Deposit", callback_data="check_deposit")
+            InlineKeyboardButton("🔍 Check Deposit", callback_data="escrow:check_deposit")
         )
 
+    # Release confirmation
     if funded and (is_buyer or is_seller):
         buttons.append(
-            InlineKeyboardButton("✅ Confirm Release", callback_data="confirm_release")
+            InlineKeyboardButton("✅ Confirm Release", callback_data="escrow:confirm_release")
         )
 
+    # Dispute
     buttons.append(
-        InlineKeyboardButton("⚠️ Open Dispute", callback_data="open_dispute")
+        InlineKeyboardButton("⚠️ Open Dispute", callback_data="escrow:dispute")
     )
+
+    # Admin override
+    if is_admin:
+        buttons.append(
+            InlineKeyboardButton("🛑 Admin Resolve", callback_data="admin:resolve")
+        )
 
     return InlineKeyboardMarkup([buttons])
 
 
-# ===== CONFIRM RELEASE =====
+# ==============================
+# CONFIRM RELEASE
+# ==============================
 def confirm_release_keyboard():
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("✅ Yes, Release", callback_data="release_yes"),
-            InlineKeyboardButton("❌ No", callback_data="release_no")
+            [
+                InlineKeyboardButton("✅ Yes, Release", callback_data="release:yes"),
+                InlineKeyboardButton("❌ No", callback_data="release:no")
+            ]
         ]
-    ])
-
-
-# ===== ADMIN =====
-def admin_panel():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("⚖️ Force Release", callback_data="admin_release"),
-            InlineKeyboardButton("🛑 Cancel Escrow", callback_data="admin_cancel")
-        ]
-    ])
+    )
