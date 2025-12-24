@@ -1,70 +1,77 @@
 import uuid
-from pyrogram import Client, filters
+from pyrogram import filters
 from database import cursor, conn
-from keyboards import main_menu
-from permissions import is_admin
-from group_manager import create_escrow_group
+from keyboards import start_keyboard, escrow_keyboard, asset_keyboard
+from permissions import get_role
+from utils import validate_address
 
-@Client.on_callback_query()
-async def callback_router(client, query):
-    data = query.data
-    user_id = query.from_user.id
+def register_callbacks(app):
 
-    if data == "create_escrow":
-        escrow_id = str(uuid.uuid4())
+    # =====================
+    # CREATE ESCROW
+    # =====================
+    @app.on_callback_query(filters.regex("^create_escrow$"))
+    async def create_escrow(client, cb):
+        escrow_id = str(uuid.uuid4())[:8]
 
-        # Insert escrow record
-        cursor.execute(
-            """
+        cursor.execute("""
             INSERT INTO escrows (id, buyer_id, status)
-            VALUES (?, ?, 'awaiting_seller')
-            """,
-            (escrow_id, user_id)
-        )
-
-        # Insert escrow participant as buyer
-        cursor.execute(
-            """
-            INSERT INTO escrow_participants (escrow_id, user_id, role)
-            VALUES (?, ?, 'buyer')
-            """,
-            (escrow_id, user_id)
-        )
-
+            VALUES (?, ?, 'awaiting_group')
+        """, (escrow_id, cb.from_user.id))
         conn.commit()
 
-        # Create a private group for the escrow
-        group_id, invite_link = await create_escrow_group(
-            client,
-            escrow_id,
-            user_id
+        await cb.message.reply(
+            f"🆕 **Escrow Created**\n\n"
+            f"🆔 Escrow ID: `{escrow_id}`\n\n"
+            "📌 Steps:\n"
+            "1️⃣ Create a group\n"
+            "2️⃣ Add this bot\n"
+            "3️⃣ Send inside group:\n\n"
+            f"`/bind {escrow_id}`",
+            parse_mode="Markdown"
         )
+        await cb.answer()
 
-        await query.message.reply_text(
-            "Escrow created.\n\n"
-            "A private group has been created.\n"
-            "Send this invite link to the seller:\n\n"
-            f"{invite_link}"
+    # =====================
+    # ASSET SELECT
+    # =====================
+    @app.on_callback_query(filters.regex("^select_asset$"))
+    async def select_asset(client, cb):
+        await cb.message.reply("Choose asset:", reply_markup=asset_keyboard())
+        await cb.answer()
+
+    @app.on_callback_query(filters.regex("^asset_"))
+    async def asset_chosen(client, cb):
+        asset = cb.data.split("_")[1]
+
+        cursor.execute(
+            "UPDATE escrows SET asset=?, status='awaiting_deposit' WHERE group_id=?",
+            (asset, cb.message.chat.id)
         )
+        conn.commit()
 
-    elif data == "help":
-        await query.message.reply_text(
-            "How escrow works:\n"
-            "1. Create escrow\n"
-            "2. Seller joins via link\n"
-            "3. Buyer deposits funds\n"
-            "4. Bot confirms deposit\n"
-            "5. Delivery\n"
-            "6. Release"
+        await cb.message.reply(f"💰 Asset selected: {asset}\nWaiting for deposit.")
+        await cb.answer()
+
+    # =====================
+    # WALLET SET
+    # =====================
+    @app.on_callback_query(filters.regex("^set_buyer_wallet$"))
+    async def buyer_wallet(client, cb):
+        cursor.execute(
+            "INSERT OR REPLACE INTO sessions VALUES (?, NULL, 'awaiting_buyer_wallet', CURRENT_TIMESTAMP)",
+            (cb.from_user.id,)
         )
+        conn.commit()
+        await cb.message.reply("Send your wallet address:")
+        await cb.answer()
 
-    elif data == "terms":
-        await query.message.reply_text(
-            "Escrow rules:\n"
-            "- Funds must be confirmed on-chain\n"
-            "- Release requires both parties\n"
-            "- Admin resolves disputes\n"
-            "- Fees are deducted automatically"
+    @app.on_callback_query(filters.regex("^set_seller_wallet$"))
+    async def seller_wallet(client, cb):
+        cursor.execute(
+            "INSERT OR REPLACE INTO sessions VALUES (?, NULL, 'awaiting_seller_wallet', CURRENT_TIMESTAMP)",
+            (cb.from_user.id,)
         )
-
-    await query.answer()
+        conn.commit()
+        await cb.message.reply("Send your wallet address:")
+        await cb.answer()
