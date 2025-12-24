@@ -1,238 +1,105 @@
 import os
 import asyncio
-import uuid
 from dotenv import load_dotenv
 
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import CallbackQuery
 
-from database import conn, cursor
-from utils import calculate_fee
-from deposit_watcher import deposit_watcher
-from keyboards import start_keyboard, escrow_actions
-from group_manager import create_escrow_group
+from keep_alive import keep_alive
+from callbacks import (
+    start_callback,
+    create_escrow,
+    select_asset,
+    set_asset,
+    check_deposit,
+    confirm_release,
+    release_yes,
+    release_no,
+)
+from database import init_db
 
+
+# =========================
+# LOAD ENV
+# =========================
 load_dotenv()
 
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
+
+# =========================
+# INIT BOT
+# =========================
 app = Client(
-    "escrowbot",
-    bot_token=BOT_TOKEN,
+    "escrow_bot",
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
 )
 
-# -------------------------------------------------
-# START
-# -------------------------------------------------
 
-@app.on_message(filters.private & filters.command("start"))
-async def start_handler(client, message):
+# =========================
+# STARTUP
+# =========================
+@app.on_message(filters.command("start") & filters.private)
+async def start_cmd(client, message):
     await message.reply(
-        "P2P Escrow Bot\n\n"
-        "This bot creates a private escrow group automatically.\n\n"
-        "Flow:\n"
-        "1. Buyer creates escrow\n"
-        "2. Bot creates private group\n"
-        "3. Buyer sends invite to seller\n"
-        "4. Buyer deposits funds\n"
-        "5. Deposit is auto-confirmed\n"
-        "6. Seller delivers\n"
-        "7. Both confirm release\n\n"
-        "All actions use buttons.",
-        reply_markup=start_keyboard()
+        "👋 Welcome to Escrow Bot\n\n"
+        "Use the buttons below to create a secure escrow.",
+        reply_markup=None
     )
 
-# -------------------------------------------------
-# CREATE ESCROW (AUTO GROUP)
-# -------------------------------------------------
 
-@app.on_callback_query(filters.regex("^create_escrow$"))
-async def create_escrow_cb(client, cb):
-    escrow_id = str(uuid.uuid4())
+# =========================
+# CALLBACK ROUTER
+# =========================
+@app.on_callback_query()
+async def callback_router(client, cq: CallbackQuery):
+    data = cq.data
 
-    # Create escrow record
-    cursor.execute(
-        """
-        INSERT INTO escrows (id, buyer_id, status)
-        VALUES (?, ?, 'awaiting_seller')
-        """,
-        (escrow_id, cb.from_user.id)
-    )
+    # HOME
+    if data == "home:start":
+        await start_callback(client, cq)
 
-    cursor.execute(
-        """
-        INSERT INTO escrow_participants VALUES (?, ?, 'buyer')
-        """,
-        (escrow_id, cb.from_user.id)
-    )
-    conn.commit()
+    # ESCROW
+    elif data == "escrow:create":
+        await create_escrow(client, cq)
 
-    # Create private group
-    group_id, invite_link = await create_escrow_group(
-        client,
-        escrow_id,
-        cb.from_user.id
-    )
+    elif data == "escrow:set_asset":
+        await select_asset(client, cq)
 
-    await cb.message.reply(
-        "Escrow created.\n\n"
-        "A private escrow group has been created.\n\n"
-        "Send this invite link to the seller:\n\n"
-        f"{invite_link}"
-    )
+    elif data.startswith("asset:"):
+        await set_asset(client, cq)
 
-    await cb.answer()
+    elif data == "escrow:check_deposit":
+        await check_deposit(client, cq)
 
-# -------------------------------------------------
-# SELLER JOIN DETECTION
-# -------------------------------------------------
+    elif data == "escrow:confirm_release":
+        await confirm_release(client, cq)
 
-@app.on_message(filters.new_chat_members)
-async def seller_join_handler(client, message):
-    chat_id = message.chat.id
+    # RELEASE
+    elif data == "release:yes":
+        await release_yes(client, cq)
 
-    cursor.execute(
-        "SELECT id FROM escrows WHERE group_id = ? AND status = 'awaiting_seller'",
-        (chat_id,)
-    )
-    row = cursor.fetchone()
-    if not row:
-        return
+    elif data == "release:no":
+        await release_no(client, cq)
 
-    escrow_id = row[0]
-
-    for user in message.new_chat_members:
-        cursor.execute(
-            "INSERT OR IGNORE INTO escrow_participants VALUES (?, ?, 'seller')",
-            (escrow_id, user.id)
-        )
-        cursor.execute(
-            """
-            UPDATE escrows
-            SET seller_id = ?, status = 'awaiting_amount'
-            WHERE id = ?
-            """,
-            (user.id, escrow_id)
-        )
-        conn.commit()
-
-        await message.reply(
-            "Seller joined.\n\n"
-            "Buyer must now set asset and amount."
-        )
-
-# -------------------------------------------------
-# SET ASSET
-# -------------------------------------------------
-
-@app.on_callback_query(filters.regex("^asset_"))
-async def set_asset_cb(client, cb):
-    asset = cb.data.split("_")[1]
-
-    cursor.execute(
-        "UPDATE escrows SET asset = ? WHERE group_id = ?",
-        (asset, cb.message.chat.id)
-    )
-    conn.commit()
-
-    await cb.message.reply("Asset set. Now enter the amount.")
-    await cb.answer()
-
-# -------------------------------------------------
-# SET AMOUNT
-# -------------------------------------------------
-
-@app.on_message(filters.group & filters.text)
-async def amount_input(client, message):
-    cursor.execute(
-        "SELECT status FROM escrows WHERE group_id = ?",
-        (message.chat.id,)
-    )
-    row = cursor.fetchone()
-    if not row or row[0] != "awaiting_amount":
-        return
-
-    try:
-        amount = float(message.text)
-    except ValueError:
-        return await message.reply("Invalid amount.")
-
-    fee, net = calculate_fee(amount)
-
-    cursor.execute(
-        """
-        UPDATE escrows
-        SET amount = ?, fee = ?, net_amount = ?, status = 'awaiting_deposit'
-        WHERE group_id = ?
-        """,
-        (amount, fee, net, message.chat.id)
-    )
-    conn.commit()
-
-    await message.reply(
-        f"Amount locked.\n\n"
-        f"Amount: {amount}\n"
-        f"Fee: {fee}\n"
-        f"Seller receives: {net}\n\n"
-        "Waiting for deposit."
-    )
-
-# -------------------------------------------------
-# RELEASE (DUAL CONFIRM)
-# -------------------------------------------------
-
-@app.on_callback_query(filters.regex("^confirm_release$"))
-async def confirm_release_cb(client, cb):
-    cursor.execute(
-        """
-        SELECT buyer_id, seller_id, buyer_confirmed, seller_confirmed
-        FROM escrows WHERE group_id = ?
-        """,
-        (cb.message.chat.id,)
-    )
-    row = cursor.fetchone()
-    if not row:
-        return
-
-    buyer_id, seller_id, b_conf, s_conf = row
-
-    if cb.from_user.id == buyer_id:
-        b_conf = 1
-    elif cb.from_user.id == seller_id:
-        s_conf = 1
     else:
-        return await cb.answer("Not authorized")
+        await cq.answer("Unknown action", show_alert=True)
 
-    cursor.execute(
-        """
-        UPDATE escrows
-        SET buyer_confirmed = ?, seller_confirmed = ?
-        WHERE group_id = ?
-        """,
-        (b_conf, s_conf, cb.message.chat.id)
-    )
-    conn.commit()
 
-    if b_conf and s_conf:
-        cursor.execute(
-            "UPDATE escrows SET status = 'released' WHERE group_id = ?",
-            (cb.message.chat.id,)
-        )
-        conn.commit()
-        await cb.message.reply("Escrow completed. Funds released.")
-    else:
-        await cb.answer("Confirmation recorded")
-
-# -------------------------------------------------
-# BACKGROUND TASKS + RUN
-# -------------------------------------------------
-
+# =========================
+# MAIN ENTRY
+# =========================
 async def main():
-    async with app:
-        app.loop.create_task(deposit_watcher(app))
-        await asyncio.Event().wait()
+    init_db()
+    keep_alive()
+    await app.start()
+    print("🚀 Escrow Bot is LIVE")
+    await asyncio.Event().wait()
 
-app.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())
