@@ -1,10 +1,8 @@
 import os
-import asyncio
 from dotenv import load_dotenv
 from pyrogram import Client, filters
 
 from database import init_db
-from keep_alive import keep_alive
 from callbacks import (
     start_callback,
     create_escrow,
@@ -51,13 +49,7 @@ async def router(client, cq):
     await cq.answer()
 
 
-async def main():
-    init_db()
-    keep_alive()
-    await app.start()
-    print("🚀 P2P EscrowBot is LIVE")
-    await asyncio.Event().wait()
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    init_db()
+    print("🚀 P2P EscrowBot starting…")
+    app.run()
